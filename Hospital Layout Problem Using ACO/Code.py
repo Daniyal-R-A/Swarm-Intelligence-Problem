@@ -5,27 +5,23 @@ import sys
 import os
 
 class ACO_Hospital_layout_Solver:
-
     def __init__(self, patient_flow_file, distance_matrix_file, alpha, beta, rho, total_ants, Q, iterations):
-        self.patient_flow_matrix, self.distance_matrix  = self.read_data(patient_flow_file, distance_matrix_file)
+        # Read data from files
+        self.patient_flow_matrix, self.distance_matrix = self.read_data(patient_flow_file, distance_matrix_file)
+        
+        # Get dimensions
         n_facilities = len(self.patient_flow_matrix)
         n_locations = len(self.distance_matrix)
-        # desirability matrix (attractiveness of assigning facility to location)
-        self.desirability_matrix = np.zeros((n_facilities, n_locations)) #self.desirability_matrix(i,j) is the desirability of assigning ith facilty to jth location
+
+        # Initialize desirability matrix
+        self.desirability_matrix = np.zeros((n_facilities, n_locations))
         self.Calculate_desirability(n_facilities, n_locations)
 
-        # intensity matrix (pheromone levels for assigning facility to location)
-        self.intensity_matrix = np.ones((n_facilities, n_locations)) * 1e-6  #self.intensity_matrix(i,j) is the pheromone intensity of assigning ith facilty to jth location
+        # Initialize intensity matrix (pheromone levels)
+        self.intensity_matrix = np.ones((n_facilities, n_locations)) * 1e-6
 
-        alpha = alpha
-        beta = beta
-        rho = rho 
-        total_ants = total_ants
-        Q = Q
-        total_iterations = iterations
-
-        self.Perform_ACO(Q, alpha, beta, rho, total_ants, total_iterations, n_facilities, n_locations)
-        return
+        # Run ACO algorithm
+        self.Perform_ACO(Q, alpha, beta, rho, total_ants, iterations, n_facilities, n_locations)
         
     def read_matrix(self, file_path):
         """
@@ -79,32 +75,39 @@ class ACO_Hospital_layout_Solver:
         
         return score
     
-    def Calculate_desirability(self, n_facilities, n_locations):
+    def Calculate_desirability(self, n_facilities, n_locations, best_solution=None):
         """
-        Calculating the desirability matrix for assigning facilities to locations.
-        self.desirability_matrix(i,j) is the desirability of assigning ith facilty to jth location
+        Calculate the desirability matrix for assigning facilities to locations.
+        If a best_solution is provided, update the desirability matrix dynamically.
         """
+        self.desirability_matrix = np.zeros((n_facilities, n_locations))
 
-        
         for i in range(n_facilities):  # For each facility
             for j in range(n_locations):  # For each location
                 total_cost = 0
                 for k in range(n_facilities):  # For all other facilities
                     if k != i:
-                        # Find the location of facility k (assuming a candidate solution)
-                        # For now, assume all facilities are assigned to locations in order
-                        loc_k = k  # This is a placeholder; in ACO, this will be dynamic
-                        
+                        # Find the location of facility k in the best solution
+                        if best_solution is not None:
+                            loc_k = best_solution[k]  # Use the best solution to find the location of facility k
+                        else:
+                            loc_k = k  # Default to initial assumption (e.g., facilities assigned in order)
+
                         # Calculate the cost contribution of facility i at location j
                         flow = self.patient_flow_matrix[i][k]
                         distance = self.distance_matrix[j][loc_k]
                         total_cost += flow * distance
-                
+
                 # Avoid division by zero
                 if total_cost == 0:
                     self.desirability_matrix[i][j] = np.inf
                 else:
                     self.desirability_matrix[i][j] = 1 / total_cost
+
+        # If a best solution is provided, reinforce the desirability of assignments in the best solution
+        if best_solution is not None:
+            for location, facility in enumerate(best_solution):
+                self.desirability_matrix[facility][location] *= 1.5  # Increase desirability for assignments in the best solution
 
 
     def Update_trail_intensity(self, Q, representations, rho):
@@ -159,17 +162,24 @@ class ACO_Hospital_layout_Solver:
         return probability_matrix
 
 
-    def Calculate_next_facility(self, probability_matrix, facility):  # roulette_wheel_selection
-        r = np.random.rand()  # Random float in [0, 1)
-        cumulative = 0.0
+    def Calculate_next_facility(self, probability_matrix, current_location): #rank based selection
+        # Extract probabilities for the current location
+        facility_probabilities = probability_matrix[:, current_location]
+    
+        # Rank facilities in descending order of probability
+        ranks = np.argsort(facility_probabilities)[::-1]  # Descending order
+    
+        # Assign rank-based probabilities (linear ranking)
+        rank_probabilities = np.arange(len(ranks), 0, -1)  # Linear ranking: [n, n-1, ..., 1]
+        rank_probabilities = rank_probabilities / np.sum(rank_probabilities)  # Normalize
+    
+        # Perform roulette wheel selection based on rank probabilities
+        r = np.random.rand()
+        cumulative = np.cumsum(rank_probabilities)
+        selected_rank = np.argmax(cumulative >= r)  # Find the selected rank
+        selected_facility = ranks[selected_rank]  # Map rank back to facility index
 
-        for i in range(len(probability_matrix[facility])):
-            cumulative += probability_matrix[facility][i]
-            if r <= cumulative + 1e-10:  # Account for floating-point precision
-                return i
-
-        # Fallback: Return the last location if no selection is made
-        return len(probability_matrix[facility]) - 1
+        return selected_facility
     
     def Plot_scores(self, best_fitness, avg_fitness, alpha, beta, rho, total_ants, total_iterations):
         # Create a figure
@@ -192,92 +202,95 @@ class ACO_Hospital_layout_Solver:
 
         # Show the plot
         plt.tight_layout()
-        plt.show()
-
+        plt.show()       
+    
     def Perform_ACO(self, Q, alpha, beta, rho, total_ants, total_iterations, n_facilities, n_locations):
-
-        # Initializing global best solution
+        # Initialize global best solution
         global_best_solution = None
-        global_best_score = float('inf') 
+        global_best_score = float('inf')
         iterations_best_solution = []
-        iterations_avg_fitness = [] 
+        iterations_avg_fitness = []
 
-        #Initialzing using Random Population Generations
+        # Initialize using Random Population Generations
         representations = []
         temp = []
         for i in range(total_ants):
-            sol = self.Random_population_generator(19,19)
-            if (len(representations)>=19):
-                    representations.append((sol.tolist(), self.Calculate_population_score(sol)))
+            sol = self.Random_population_generator(19, 19)
+            if len(representations) >= 19:
+                representations.append((sol.tolist(), self.Calculate_population_score(sol)))
             else:
-                while(sol[0] in temp):
-                    sol = self.Random_population_generator(19,19)       
-                # Calculating the score for the solution
+                while sol[0] in temp:
+                    sol = self.Random_population_generator(19, 19)
                 score = self.Calculate_population_score(np.array(sol))
                 representations.append((sol, score))
+                temp.append(sol[0])
 
-                temp.append(sol[0]) #Keeping track of all first visited locations
-            
-        # Updating pheromone trail_intensity matrix
+        # Calculate initial desirability matrix
+        self.Calculate_desirability(n_facilities, n_locations)
+
+        # Update pheromone trail intensity matrix
         self.Update_trail_intensity(Q, representations, rho)
         global_best_solution, global_best_score = min(representations, key=lambda x: x[1])
         iterations_best_solution.append(global_best_score)
 
-        # Calculating average fitness for this iteration
+        # Calculate average fitness for this iteration
         current_avg_score = np.mean([score for (sol, score) in representations])
-        iterations_avg_fitness.append(current_avg_score)  # Tracking average fitness
+        iterations_avg_fitness.append(current_avg_score)
 
-        # Running for next total_iterations-1 left iterations.
-        for iterations in range(total_iterations-1):
+        # Run for the remaining iterations
+        for iteration in range(total_iterations - 1):
             representations = []
             for ant in range(total_ants):
-                if (ant <= 18): # making sure that atleast one solution starts from every location
+                if ant <= 18:  # Ensure at least one solution starts from every location
                     j = ant
                 else:
-                    j = np.random.randint(0, 19)  # Upper bound is exclusive - generates between 0 to 18
-                
-                sol = [j] # first element of solution
-                while(len(sol) < n_locations):
-                    # providing the probability matrix and current facility to determine the nxt one
-                    next_facility = self.Calculate_next_facility(self.Calculate_probability_at_time_t(alpha, beta), sol[-1])
-                    
+                    j = np.random.randint(0, 19)
+
+                sol = [j]  # First element of solution
+                while len(sol) < n_locations:
+                    next_facility = self.Calculate_next_facility(self.Calculate_probability_at_time_t(alpha, beta), len(sol))
                     if next_facility not in sol:
                         sol.append(next_facility)
-                    else: 
-                        # Selecting a random unvisited location
+                    else:
                         remaining = [loc for loc in range(n_locations) if loc not in sol]
                         if not remaining:
-                            break  # Will not happen for valid permutation
+                            break
                         sol.append(np.random.choice(remaining))
-                
-                # Ensuring the solution is a valid permutation
+
                 if len(sol) != n_locations:
                     continue
-                # Calculating the score for the solution
                 score = self.Calculate_population_score(np.array(sol))
                 representations.append((sol, score))
-            
-            # Updating pheromone trail_intensity matrix
+
+            # Update pheromone trail intensity matrix
             self.Update_trail_intensity(Q, representations, rho)
 
-            # Calculating average fitness for this iteration
-            current_avg_score = np.mean([score for (sol, score) in representations])
-            iterations_avg_fitness.append(current_avg_score)  # Tracking average fitness
-
-            # Updating global best solution
+            # Update desirability matrix based on the current best solution
             current_best_solution, current_best_score = min(representations, key=lambda x: x[1])
-            iterations_best_solution.append(current_best_score)
+            self.Calculate_desirability(n_facilities, n_locations, current_best_solution)
 
+            # Update global best solution
             if current_best_score < global_best_score:
                 global_best_solution = current_best_solution
                 global_best_score = current_best_score
-            
+
+            # Track best and average fitness
+            iterations_best_solution.append(global_best_score)
+            current_avg_score = np.mean([score for (sol, score) in representations])
+            iterations_avg_fitness.append(current_avg_score)
+
         print(f"Global Best Solution: {self.Show_Actual_Solution(global_best_solution)}, Score: {int(global_best_score)}")
         self.Plot_scores(iterations_best_solution, iterations_avg_fitness, alpha, beta, rho, total_ants, total_iterations)
-        
-        return             
 
 if __name__ == "__main__":
     # ACO_Hospital_layout_Solver(patient_flow_file, distance_matrix_file, alpha, beta, rho, total_ants, Q, iterations)
-    obj = ACO_Hospital_layout_Solver("data_facilities_patient_flow.txt", "data_location_distances.txt", 1, 1, 0.8, 25, 100000, 1000)
-
+    obj = ACO_Hospital_layout_Solver(
+        "data_facilities_patient_flow.txt", 
+        "data_location_distances.txt", 
+        alpha=3, 
+        beta=4, 
+        rho=0.3, 
+        total_ants=105, 
+        Q=1000, 
+        iterations=2000
+    )
