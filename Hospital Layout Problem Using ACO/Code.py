@@ -230,7 +230,7 @@ class ACO_Hospital_layout_Solver:
         n = len(solution)
         best_solution = solution.copy()
         best_score = score
-    
+
         # Swap neighborhood
         for i in range(n):
             for j in range(i + 1, n):
@@ -239,7 +239,7 @@ class ACO_Hospital_layout_Solver:
                 if swap_score < best_score:
                     best_solution = swap_sol
                     best_score = swap_score
-    
+
         # Shift neighborhood
         for i in range(n):
             for new_pos in range(n):
@@ -250,7 +250,7 @@ class ACO_Hospital_layout_Solver:
                 if shift_score < best_score:
                     best_solution = shift_sol
                     best_score = shift_score
-    
+
         # Invert neighborhood
         for start in range(n - 1):
             for end in range(start + 1, n):
@@ -259,7 +259,7 @@ class ACO_Hospital_layout_Solver:
                 if invert_score < best_score:
                     best_solution = invert_sol
                     best_score = invert_score
-    
+
         return best_solution, best_score
 
     def Perform_ACO(self, Q, alpha, beta, rho, total_ants, total_iterations, n_facilities, n_locations):
@@ -279,14 +279,8 @@ class ACO_Hospital_layout_Solver:
             if len(representations) < 19:
                 while sol[0] in temp:
                     sol = self.Random_population_generator(19, 19)
-                
+           
             score = self.Calculate_population_score(np.array(sol))
-            new_sol, new_score = self.Variable_Neighborhood_Search(sol, score)
-            # new_score = self.Calculate_population_score(new_sol)
-
-            if new_score < score:
-                sol = new_sol
-                score = new_score   
             temp.append(sol[0])
 
             representations.append((sol, score))              
@@ -297,6 +291,7 @@ class ACO_Hospital_layout_Solver:
         self.Update_trail_intensity(Q, representations, rho)
 
         global_best_solution, global_best_score = min(representations, key=lambda x: x[1])
+        global_best_solution, global_best_score = self.Variable_Neighborhood_Search(global_best_solution, global_best_score)
         iterations_best_solution.append(global_best_score)
 
         # Calculate average fitness for this iteration
@@ -327,15 +322,7 @@ class ACO_Hospital_layout_Solver:
 
                 if len(sol) != n_locations:
                     continue
-                    
                 score = self.Calculate_population_score(np.array(sol))
-                new_sol, new_score  = self.Variable_Neighborhood_Search(sol, score)
-                # new_score = self.Calculate_population_score(new_sol)
-
-                if new_score < score:
-                    sol = new_sol
-                    score = new_score
-                    
                 representations.append((sol, score))
 
                 # Update tracking variables
@@ -347,6 +334,7 @@ class ACO_Hospital_layout_Solver:
 
             # Calculate current best solution
             current_best_solution, current_best_score = min(representations, key=lambda x: x[1])
+            current_best_solution, current_best_score = self.Variable_Neighborhood_Search(current_best_solution, current_best_score)
 
             # Update global best solution
             if current_best_score < global_best_score:
@@ -362,17 +350,16 @@ class ACO_Hospital_layout_Solver:
         self.Plot_scores(iterations_best_solution, iterations_avg_fitness, alpha, beta, rho, total_ants, total_iterations)
 
         return
-    
 
 if __name__ == "__main__":
     # ACO_Hospital_layout_Solver(patient_flow_file, distance_matrix_file, alpha, beta, rho, total_ants, Q, iterations)
     obj = ACO_Hospital_layout_Solver(
-        "/kaggle/input/dataset/data_facilities_patient_flow.txt", 
-        "/kaggle/input/dataset/data_location_distances.txt", 
+        "data_facilities_patient_flow.txt", 
+        "data_location_distances.txt", 
         alpha=1, 
-        beta=10, 
+        beta=15, 
         rho=0.8, 
-        total_ants=100, 
+        total_ants=200, 
         Q=1000, 
-        iterations=100
+        iterations=1700
     )
